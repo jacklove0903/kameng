@@ -1,0 +1,31 @@
+# Backend
+backend/target/
+backend/.idea/
+backend/.fastRequest/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# IDE
+.idea/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+
+# Maven
+*.jar
+*.war
+
+# Logs
+*.log
+
+# UI images
+docs/*.png
+docs/*.jpg

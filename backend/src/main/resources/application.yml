@@ -1,0 +1,41 @@
+server:
+  port: 8080
+
+spring:
+  profiles:
+    active: dev
+  datasource:
+    driver-class-name: org.postgresql.Driver
+    url: jdbc:postgresql://localhost:5432/video_aggregator
+    username: postgres
+    password: postgres123456
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
+
+mybatis-plus:
+  configuration:
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    map-underscore-to-camel-case: true
+  global-config:
+    db-config:
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+# JWT 配置（Phase 4 启用）
+jwt:
+  secret: VideoAggregatorSecretKey2024MustBeLongEnoughForHS256Algorithm
+  expiration: 86400000  # 24小时
+
+# 提供商 API 配置
+provider:
+  runway:
+    api-key: ${RUNWAY_API_KEY:}
+    api-url: https://api.dev.runwayml.com
+    default-model: gen3a_turbo
+  kling:
+    api-key: ${KLING_API_KEY:}
+    api-url: https://api.klingai.com
+    default-model: kling-v1
