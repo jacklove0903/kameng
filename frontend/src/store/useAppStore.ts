@@ -8,7 +8,7 @@ import type {
   ProviderType,
 } from '../types'
 
-const DEFAULT_PROVIDERS: ProviderType[] = ['RUNWAY', 'KLING', 'PIKA', 'SVD']
+const DEFAULT_PROVIDERS: ProviderType[] = ['RUNWAY', 'KLING', 'REPLICATE', 'PIKA']
 
 interface AppState {
   // Layout

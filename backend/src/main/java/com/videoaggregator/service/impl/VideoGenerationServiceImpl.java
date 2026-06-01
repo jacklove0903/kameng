@@ -25,11 +25,10 @@ public class VideoGenerationServiceImpl implements VideoGenerationService {
 
     private final GenerationTaskMapper taskMapper;
     private final ProviderFactory providerFactory;
+    private final AsyncGenerationService asyncGenerationService;
 
     @Override
     public GenerationTask submitTask(ProviderType providerType, VideoGenerationRequest request) {
-        VideoGenerationProvider provider = providerFactory.getProvider(providerType);
-
         // 保存任务到数据库
         GenerationTask task = new GenerationTask();
         task.setProvider(providerType.name());
@@ -43,85 +42,12 @@ public class VideoGenerationServiceImpl implements VideoGenerationService {
         task.setStatus("PENDING");
         taskMapper.insert(task);
 
-        // 异步调用提供商 API
-        asyncGenerateVideo(task.getId(), providerType, request);
+        // 异步调用提供商 API（通过单独的 Bean 以确保 @Async 代理生效）
+        asyncGenerationService.asyncGenerateVideo(task.getId(), providerType, request);
 
         return task;
     }
 
-    @Async
-    public void asyncGenerateVideo(Long taskId, ProviderType providerType, VideoGenerationRequest request) {
-        VideoGenerationProvider provider = providerFactory.getProvider(providerType);
-        GenerationTask task = taskMapper.selectById(taskId);
-
-        try {
-            // 更新状态为运行中
-            task.setStatus("RUNNING");
-            task.setUpdatedAt(LocalDateTime.now());
-            taskMapper.updateById(task);
-
-            // 提交到提供商
-            VideoGenerationResponse response = provider.submit(request);
-
-            // 保存提供商任务 ID
-            task.setProviderTaskId(response.getTaskId());
-            taskMapper.updateById(task);
-
-            // 轮询直到完成
-            pollUntilComplete(task.getId(), provider, response.getTaskId());
-
-        } catch (Exception e) {
-            log.error("Async generation failed for task {}", taskId, e);
-            task.setStatus("FAILED");
-            task.setErrorMsg(e.getMessage());
-            task.setUpdatedAt(LocalDateTime.now());
-            taskMapper.updateById(task);
-        }
-    }
-
-    private void pollUntilComplete(Long taskId, VideoGenerationProvider provider, String providerTaskId) {
-        int maxRetries = 120; // 最多轮询 120 次（约 10 分钟）
-        for (int i = 0; i < maxRetries; i++) {
-            try {
-                Thread.sleep(5000); // 每 5 秒查询一次
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return;
-            }
-
-            VideoGenerationResponse response = provider.queryStatus(providerTaskId);
-            GenerationTask task = taskMapper.selectById(taskId);
-
-            switch (response.getStatus()) {
-                case "SUCCESS" -> {
-                    task.setStatus("SUCCESS");
-                    task.setVideoUrl(response.getVideoUrl());
-                    task.setCost(response.getCost());
-                    task.setUpdatedAt(LocalDateTime.now());
-                    taskMapper.updateById(task);
-                    return;
-                }
-                case "FAILED" -> {
-                    task.setStatus("FAILED");
-                    task.setErrorMsg(response.getErrorMsg());
-                    task.setUpdatedAt(LocalDateTime.now());
-                    taskMapper.updateById(task);
-                    return;
-                }
-                case "RUNNING" -> {
-                    // 继续轮询
-                    log.debug("Task {} still running, progress: {}%", taskId, response.getProgress());
-                }
-            }
-        }
-
-        // 超时
-        GenerationTask task = taskMapper.selectById(taskId);
-        task.setStatus("FAILED");
-        task.setErrorMsg("生成超时");
-        task.setUpdatedAt(LocalDateTime.now());
-        taskMapper.updateById(task);
-    }
 
     @Override
     public GenerationTask getTask(Long id) {

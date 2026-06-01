@@ -18,6 +18,7 @@ Thumbs.db
 # Environment
 .env
 .env.local
+backend/src/main/resources/application-local.yml
 
 # Maven
 *.jar

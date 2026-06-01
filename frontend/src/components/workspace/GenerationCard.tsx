@@ -26,6 +26,7 @@ interface Props {
 const providerColors: Record<string, string> = {
   RUNWAY: '#6c5ce7',
   KLING: '#00b894',
+  REPLICATE: '#0d6efd',
   PIKA: '#fdcb6e',
   SVD: '#e17055',
 }
@@ -33,6 +34,7 @@ const providerColors: Record<string, string> = {
 const providerLabels: Record<string, string> = {
   RUNWAY: 'Runway',
   KLING: 'Kling',
+  REPLICATE: 'Replicate',
   PIKA: 'Pika',
   SVD: 'Stable Video',
 }
@@ -66,8 +68,19 @@ export default function GenerationCard({ slot, index, layout }: Props) {
       updateSlot(index, { task: newTask, loading: false })
       addTask(newTask)
       addPollingId(newTask.id)
-    } catch {
-      updateSlot(index, { loading: false })
+    } catch (err: any) {
+      const errorMsg = err?.response?.data?.message || err?.message || '提交失败'
+      const failedTask = {
+        id: Date.now(),
+        provider: slot.provider,
+        prompt: promptParams.prompt,
+        status: 'FAILED' as const,
+        errorMsg,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }
+      updateSlot(index, { task: failedTask as any, loading: false })
+      addTask(failedTask as any)
     }
   }
 

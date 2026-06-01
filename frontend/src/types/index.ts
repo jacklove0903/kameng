@@ -1,4 +1,4 @@
-export type ProviderType = 'RUNWAY' | 'KLING' | 'PIKA' | 'SVD'
+export type ProviderType = 'RUNWAY' | 'KLING' | 'REPLICATE' | 'PIKA' | 'SVD'
 
 export interface Provider {
   type: ProviderType

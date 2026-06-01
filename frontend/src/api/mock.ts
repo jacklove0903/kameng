@@ -38,6 +38,7 @@ export const mockProviderApi = {
   list: (): Provider[] => [
     { type: 'RUNWAY', displayName: 'Runway', available: true },
     { type: 'KLING', displayName: 'Kling', available: true },
+    { type: 'REPLICATE', displayName: 'Replicate', available: true },
     { type: 'PIKA', displayName: 'Pika', available: true },
     { type: 'SVD', displayName: 'Stable Video', available: true },
   ],

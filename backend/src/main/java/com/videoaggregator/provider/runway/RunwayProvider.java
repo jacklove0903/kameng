@@ -11,7 +11,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
-import java.math.BigDecimal;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -19,6 +18,10 @@ import java.util.Map;
 @Component
 @RequiredArgsConstructor
 public class RunwayProvider implements VideoGenerationProvider {
+
+    private static final String API_VERSION = "2024-11-06";
+    // 1x1 white pixel PNG as base64 data URI, used when no image is provided
+    private static final String PLACEHOLDER_IMAGE = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
 
     private final RunwayProperties properties;
 
@@ -33,43 +36,42 @@ public class RunwayProvider implements VideoGenerationProvider {
             throw new BusinessException("Runway API Key 未配置");
         }
 
+        // Build body exactly matching the official Node.js SDK format
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("model", properties.getDefaultModel());
         body.put("promptText", request.getPrompt());
+        body.put("ratio", mapAspectRatio(request.getAspectRatio()));
+        body.put("duration", 5);
 
-        if (request.getImageUrl() != null && !request.getImageUrl().isEmpty()) {
+        // promptImage is required — use placeholder when user doesn't provide one
+        if (request.getImageUrl() != null && !request.getImageUrl().isBlank()) {
             body.put("promptImage", request.getImageUrl());
+        } else {
+            body.put("promptImage", PLACEHOLDER_IMAGE);
         }
-        if (request.getDuration() != null) {
-            body.put("duration", request.getDuration());
-        }
-        if (request.getResolution() != null) {
-            body.put("resolution", request.getResolution());
-        }
-        if (request.getAspectRatio() != null) {
-            body.put("ratio", mapAspectRatio(request.getAspectRatio()));
-        }
-        if (request.getSeed() != null) {
-            body.put("seed", request.getSeed().intValue());
-        }
+
+        String requestBody = JSONUtil.toJsonStr(body);
+        log.info("Runway submit request body: {}", requestBody);
 
         try {
             HttpResponse httpResponse = HttpRequest.post(properties.getApiUrl() + "/v1/image_to_video")
                     .header(Header.AUTHORIZATION, "Bearer " + properties.getApiKey())
                     .header(Header.CONTENT_TYPE, "application/json")
-                    .body(JSONUtil.toJsonStr(body))
-                    .timeout(30000)
+                    .header("X-Runway-Version", API_VERSION)
+                    .body(requestBody)
+                    .timeout(60000)
                     .execute();
 
+            int status = httpResponse.getStatus();
             String resultBody = httpResponse.body();
-            JSONObject json = JSONUtil.parseObj(resultBody);
+            log.info("Runway submit response [{}]: {}", status, resultBody);
 
-            if (httpResponse.getStatus() != 200 && httpResponse.getStatus() != 201) {
-                String errorMsg = json.getStr("error", "Runway API 调用失败");
-                log.error("Runway submit failed: {}", errorMsg);
-                throw new BusinessException(errorMsg);
+            if (status != 200 && status != 201) {
+                JSONObject json = JSONUtil.parseObj(resultBody);
+                throw new BusinessException(extractError(json));
             }
 
+            JSONObject json = JSONUtil.parseObj(resultBody);
             VideoGenerationResponse response = new VideoGenerationResponse();
             response.setTaskId(json.getStr("id"));
             response.setStatus("PENDING");
@@ -92,28 +94,41 @@ public class RunwayProvider implements VideoGenerationProvider {
         try {
             HttpResponse httpResponse = HttpRequest.get(properties.getApiUrl() + "/v1/tasks/" + taskId)
                     .header(Header.AUTHORIZATION, "Bearer " + properties.getApiKey())
+                    .header("X-Runway-Version", API_VERSION)
                     .timeout(15000)
                     .execute();
 
+            int status = httpResponse.getStatus();
             String resultBody = httpResponse.body();
-            JSONObject json = JSONUtil.parseObj(resultBody);
+            log.info("Runway query response [{}]: {}", status, resultBody);
 
+            if (status != 200) {
+                JSONObject json = JSONUtil.parseObj(resultBody);
+                throw new BusinessException(extractError(json));
+            }
+
+            JSONObject json = JSONUtil.parseObj(resultBody);
             VideoGenerationResponse response = new VideoGenerationResponse();
             response.setTaskId(taskId);
 
-            String status = json.getStr("status");
-            switch (status != null ? status.toUpperCase() : "") {
+            String taskStatus = json.getStr("status");
+            if (taskStatus == null) taskStatus = "";
+
+            switch (taskStatus) {
                 case "SUCCEEDED" -> {
                     response.setStatus("SUCCESS");
-                    response.setVideoUrl(json.getJSONArray("artifacts")
-                            .getJSONObject(0).getStr("url"));
+                    // output is an array of URLs
+                    var output = json.get("output");
+                    if (output instanceof java.util.List<?> list && !list.isEmpty()) {
+                        response.setVideoUrl(list.get(0).toString());
+                    }
                     response.setProgress(100);
                 }
                 case "FAILED" -> {
                     response.setStatus("FAILED");
-                    response.setErrorMsg(json.getStr("failureReason", "生成失败"));
+                    response.setErrorMsg(json.getStr("failure", json.getStr("failureReason", "生成失败")));
                 }
-                case "RUNNING" -> {
+                case "RUNNING", "THROTTLED" -> {
                     response.setStatus("RUNNING");
                     response.setProgress(json.getInt("progress", 0));
                 }
@@ -125,6 +140,8 @@ public class RunwayProvider implements VideoGenerationProvider {
 
             return response;
 
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
             log.error("Runway query error for task {}", taskId, e);
             throw new BusinessException("Runway 查询失败: " + e.getMessage());
@@ -137,11 +154,34 @@ public class RunwayProvider implements VideoGenerationProvider {
     }
 
     private String mapAspectRatio(String aspectRatio) {
+        if (aspectRatio == null) return "1280:720";
         return switch (aspectRatio) {
-            case "16:9" -> "1280:768";
-            case "9:16" -> "768:1280";
-            case "1:1" -> "1024:1024";
-            default -> "1280:768";
+            case "16:9" -> "1280:720";
+            case "9:16" -> "720:1280";
+            case "1:1" -> "720:720";
+            default -> "1280:720";
         };
+    }
+
+    private String extractError(JSONObject json) {
+        // Handle structured error: {"error":"...","issues":[...]}
+        if (json.containsKey("error")) {
+            Object error = json.get("error");
+            String msg = (error instanceof JSONObject) ?
+                    ((JSONObject) error).getStr("message", error.toString()) :
+                    error.toString();
+            // Append issues if present
+            var issues = json.getJSONArray("issues");
+            if (issues != null && !issues.isEmpty()) {
+                JSONObject firstIssue = issues.getJSONObject(0);
+                String path = firstIssue.getStr("path", "");
+                String issueMsg = firstIssue.getStr("message", "");
+                if (!path.isEmpty() || !issueMsg.isEmpty()) {
+                    msg += " (field: " + path + ", detail: " + issueMsg + ")";
+                }
+            }
+            return msg;
+        }
+        return json.getStr("message", "Runway API 调用失败");
     }
 }
