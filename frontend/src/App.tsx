@@ -8,13 +8,13 @@ import { useAppStore } from './store/useAppStore'
 import { generateApi, providerApi } from './api'
 
 function App() {
-  const { setProviders, setTasks, pollingIds, updateTask, removePollingId } =
+  const { setProviders, setTasks, pollingIds, updateTask, removePollingId, updateSlot } =
     useAppStore()
 
   // Load initial data
   useEffect(() => {
-    providerApi.list().then((res) => setProviders(res.data))
-    generateApi.recent(50).then((res) => setTasks(res.data))
+    providerApi.list().then((providers) => setProviders(providers))
+    generateApi.recent(50).then((tasks) => setTasks(tasks))
   }, [])
 
   // Poll running tasks
@@ -22,15 +22,21 @@ function App() {
     if (pollingIds.length === 0) return
     const timer = setInterval(() => {
       pollingIds.forEach((id) => {
-        generateApi.getTask(id).then((res) => {
-          const task = res.data
+        generateApi.getTask(id).then((task) => {
+          if (!task) return
           updateTask(id, task)
+          // Also update the slot that has this task
+          const { slots } = useAppStore.getState()
+          const slotIndex = slots.findIndex((s) => s.task?.id === id)
+          if (slotIndex !== -1) {
+            updateSlot(slotIndex, { task })
+          }
           if (task.status === 'SUCCESS' || task.status === 'FAILED') {
             removePollingId(id)
           }
         })
       })
-    }, 3000)
+    }, 2000)
     return () => clearInterval(timer)
   }, [pollingIds])
 

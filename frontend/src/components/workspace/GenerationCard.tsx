@@ -44,6 +44,7 @@ export default function GenerationCard({ slot, index, layout }: Props) {
   const isRunning = slot.loading
   const task = slot.task
   const status = task?.status
+  const isGenerating = isRunning || status === 'PENDING' || status === 'RUNNING'
   const color = providerColors[slot.provider] || '#6c5ce7'
 
   const handleGenerate = async () => {
@@ -51,7 +52,7 @@ export default function GenerationCard({ slot, index, layout }: Props) {
     updateSlot(index, { loading: true })
 
     try {
-      const res = await generateApi.submit({
+      const newTask = await generateApi.submit({
         provider: slot.provider,
         prompt: promptParams.prompt,
         negativePrompt: promptParams.negativePrompt || undefined,
@@ -62,7 +63,6 @@ export default function GenerationCard({ slot, index, layout }: Props) {
         motionStrength: promptParams.motionStrength,
         samplingSteps: promptParams.samplingSteps,
       })
-      const newTask = res.data
       updateSlot(index, { task: newTask, loading: false })
       addTask(newTask)
       addPollingId(newTask.id)
@@ -133,21 +133,23 @@ export default function GenerationCard({ slot, index, layout }: Props) {
       <div className="flex flex-1 flex-col">
         {/* Video preview / placeholder */}
         <div className="relative flex flex-1 items-center justify-center bg-bg-primary min-h-[180px]">
-          {isRunning && (
+          {(status === 'PENDING' || status === 'RUNNING') && (
             <div className="flex flex-col items-center gap-3">
               <Loader2 size={32} className="animate-spin" style={{ color }} />
               <div className="w-3/4">
                 <div className="h-1 rounded-full bg-bg-tertiary overflow-hidden">
                   <div
-                    className="h-full rounded-full transition-all duration-500"
+                    className="h-full rounded-full transition-all duration-500 animate-pulse-glow"
                     style={{
-                      width: '45%',
+                      width: status === 'RUNNING' ? '60%' : '20%',
                       backgroundColor: color,
                     }}
                   />
                 </div>
               </div>
-              <span className="text-xs text-gray-500">生成中...</span>
+              <span className="text-xs text-gray-500">
+                {status === 'PENDING' ? '排队中...' : '生成中...'}
+              </span>
             </div>
           )}
           {status === 'SUCCESS' && task?.videoUrl && (
@@ -228,22 +230,22 @@ export default function GenerationCard({ slot, index, layout }: Props) {
             {/* Generate button */}
             <button
               onClick={handleGenerate}
-              disabled={isRunning || !promptParams.prompt.trim()}
+              disabled={isGenerating || !promptParams.prompt.trim()}
               className={clsx(
                 'flex w-full items-center justify-center gap-2 rounded-lg py-2 text-xs font-medium transition-all',
-                isRunning || !promptParams.prompt.trim()
+                isGenerating || !promptParams.prompt.trim()
                   ? 'bg-bg-tertiary text-gray-600 cursor-not-allowed'
                   : 'text-white hover:opacity-90'
               )}
               style={
-                !isRunning && promptParams.prompt.trim()
+                !isGenerating && promptParams.prompt.trim()
                   ? { backgroundColor: color }
                   : {}
               }
             >
-              {isRunning ? (
+              {isGenerating ? (
                 <>
-                  <Square size={12} /> 取消
+                  <Square size={12} /> 生成中
                 </>
               ) : (
                 <>

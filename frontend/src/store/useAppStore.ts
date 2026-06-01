@@ -104,7 +104,7 @@ export const useAppStore = create<AppState>((set) => ({
   queueVisible: true,
   toggleQueue: () => set((state) => ({ queueVisible: !state.queueVisible })),
 
-  activeNav: 'workspace',
+  activeNav: 'home',
   setActiveNav: (activeNav) => set({ activeNav }),
 
   pollingIds: [],
